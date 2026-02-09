@@ -3,15 +3,33 @@ on:
   schedule:
     - cron: '*/15 * * * *' # 15分おき
   workflow_dispatch: # 手動実行用ボタン
+
 jobs:
   run-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Install
+
+      # --- ここから追加：キャッシュの設定 ---
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      # --- ここまで ---
+
+      - name: Install dependencies
         run: npm install playwright
+
+      - name: Install Playwright Browsers with Deps
+        # キャッシュがあれば、ここでのダウンロードがスキップされます
+        run: npx playwright install --with-deps chromium
+
       - name: Run
-        run: npx playwright install --with-deps chromium && node index.js
+        run: node index.js

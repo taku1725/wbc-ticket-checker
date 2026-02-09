@@ -1,41 +1,50 @@
 const { chromium } = require('playwright');
 
 (async () => {
-  // ブラウザを起動
   const browser = await chromium.launch();
   const page = await browser.newPage();
 
   try {
-    // WBCのページへ移動（読み込みが終わるまで待機）
-    await page.goto('https://tradead.tixplus.jp/wbc2026', { waitUntil: 'networkidle' });
+    // 出品一覧ページへ移動
+    await page.goto('https://tradead.tixplus.jp/wbc2026/buy/bidding', { 
+      waitUntil: 'networkidle' 
+    });
 
-    // 「トレード出品一覧」の各アイテムを探して情報を抜く
-    const results = await page.$$eval('.trade_list_item', items => {
-      return items.map(item => {
-        const title = item.querySelector('.title')?.innerText.trim() || '試合名不明';
-        const count = item.querySelector('.count')?.innerText.trim() || '0枚';
-        return { title, count };
+    // 試合ごとのブロックをすべて取得して解析
+    const matches = await page.evaluate(() => {
+      // リンク（aタグ）が各試合のカードになっている
+      const cards = Array.from(document.querySelectorAll('a[href*="/listings/"]'));
+      
+      return cards.map(card => {
+        const date = card.querySelector('h4')?.innerText.trim() || "";
+        const time = card.querySelector('h6.MuiTypography-subtitle1.css-gg6ejd')?.innerText.trim() || "";
+        const countText = card.querySelector('h5')?.innerText.trim() || "0件";
+        const link = card.href;
+
+        return { date, time, countText, link };
       });
     });
 
     console.log(`--- チェック完了 (${new Date().toLocaleString('ja-JP')}) ---`);
-    
-    let hit = false;
-    results.forEach(res => {
-      console.log(`${res.title}: ${res.count}`);
-      // 「0枚」以外の文字が含まれていたらフラグを立てる
-      if (!res.count.includes('0枚')) {
-        hit = true;
+
+    let anyHit = false;
+    matches.forEach(m => {
+      // 取得した情報を表示
+      console.log(`【${m.date}日 ${m.time}】 出品: ${m.countText}`);
+      
+      // 「0件」以外があれば通知フラグ
+      if (m.countText !== '0件' && m.countText.includes('件')) {
+        console.log(`  ★発見！ URL: ${m.link}`);
+        anyHit = true;
       }
     });
 
-    if (hit) {
-      console.log('★出品を見つけました！');
-      // ここに通知処理を追加できます
+    if (!anyHit) {
+      console.log('現在、出品中のチケットはありません。');
     }
 
   } catch (error) {
-    console.error('エラーが起きました:', error);
+    console.error('エラー:', error);
   }
 
   await browser.close();
