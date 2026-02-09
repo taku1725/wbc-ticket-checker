@@ -1,42 +1,52 @@
 const { chromium } = require('playwright');
 
 (async () => {
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  // 対策1: headlessをfalseにする（GitHub Actions上ではこれでも動くよう設定済み）
+  // 対策2: 言語設定やプラットフォームを偽装する
+  const browser = await chromium.launch();
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 800 },
+    deviceScaleFactor: 1,
+    locale: 'ja-JP',
+    timezoneId: 'Asia/Tokyo',
+  });
+
+  const page = await context.newPage();
 
   try {
-    // 1. ページ移動（タイムアウトを長めに設定）
-    await page.goto('https://tradead.tixplus.jp/wbc2026/buy/bidding', { 
-      waitUntil: 'networkidle', 
+    // 対策3: JavaScriptがボットを検知する仕組みを一部無効化
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    });
+
+    console.log('サイトにアクセス中...');
+    const response = await page.goto('https://tradead.tixplus.jp/wbc2026/buy/bidding', { 
+      waitUntil: 'networkidle',
       timeout: 60000 
     });
 
-    // 2. 「件」という文字が出るまで最大20秒待つ（これが重要！）
-    console.log('データの読み込みを待機中...');
-    await page.waitForSelector('text="件"', { timeout: 20000 }).catch(() => {
-      console.log('「件」という文字が見つかりませんでしたが、続行します。');
-    });
+    // ステータスコードの確認
+    console.log('HTTPステータス:', response.status());
 
-    // 3.念のため追加で3秒待機（描画を安定させる）
-    await page.waitForTimeout(3000);
+    if (response.status() === 403) {
+      console.log('まだブロックされています。User-Agentを変更するか、別の対策が必要です。');
+    }
 
-    // 4. データの抽出
+    // 読み込み待ち
+    await page.waitForTimeout(7000); 
+
     const matches = await page.evaluate(() => {
       const results = [];
-      // すべての <a> タグの中から、内部に件数表示(h5)を持つものを探す
       const cards = Array.from(document.querySelectorAll('a'));
-
       cards.forEach(card => {
         const h5 = card.querySelector('h5');
         if (h5 && h5.innerText.includes('件')) {
           const date = card.querySelector('h4')?.innerText.trim() || "";
           const h6s = Array.from(card.querySelectorAll('h6'));
-          // 時間(00:00形式)が含まれるh6を探す
           const time = h6s.find(h => h.innerText.includes(':'))?.innerText.trim() || "";
           const countText = h5.innerText.trim();
-          const link = card.href;
-
-          results.push({ date, time, countText, link });
+          results.push({ date, time, countText, link: card.href });
         }
       });
       return results;
@@ -45,24 +55,9 @@ const { chromium } = require('playwright');
     console.log(`--- チェック完了 (${new Date().toLocaleString('ja-JP')}) ---`);
     console.log(`取得した試合数: ${matches.length}`);
 
-    let anyHit = false;
     matches.forEach(m => {
       console.log(`【${m.date}日 ${m.time}】 出品: ${m.countText}`);
-      
-      // 「0件」以外の数字が入っていればヒット
-      const countNum = parseInt(m.countText.replace(/[^0-9]/g, ''));
-      if (countNum > 0) {
-        console.log(`  ★出品中！ URL: ${m.link}`);
-        anyHit = true;
-      }
     });
-
-    if (matches.length === 0) {
-      console.log('警告: 試合データが取得できませんでした。');
-      // 予備：ページ全体のテキストを少し出す
-      const text = await page.innerText('body');
-      console.log('ページ冒頭テキスト:', text.substring(0, 100));
-    }
 
   } catch (error) {
     console.error('エラー発生:', error);
