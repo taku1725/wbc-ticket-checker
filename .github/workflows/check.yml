@@ -1,0 +1,17 @@
+name: WBC-Check
+on:
+  schedule:
+    - cron: '*/15 * * * *' # 15分おき
+  workflow_dispatch: # 手動実行用ボタン
+jobs:
+  run-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: npm install playwright
+      - name: Run
+        run: npx playwright install --with-deps chromium && node index.js
